@@ -3,6 +3,23 @@ import scrapy
 import logging
 import os
 
+"""
+TODO Errros:
+- Looking at the same job. There might be an ID 
+for each job, save job IDS to a set
+"""
+
+class bcolors:
+
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 
 class SimplyHiredSpider(scrapy.Spider):
 	
@@ -46,49 +63,42 @@ class SimplyHiredSpider(scrapy.Spider):
 
 
 
-	def parse_remote_page(self, response):
+	def parse_search_page(self, response):
 
 		job_title = response.meta['job']
-		xpath = "//a[@class='card-link' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),{job_title})]".format(job_title = job_title)
-		job_titles = response.xpath(xpath).extract()
-		
-		""" Found relevant matches to inputed job title """
-		if job_titles and "&l=&" in response.url:
-			""" Looks at all relevant jobs (based on keywords) in single page """
-			for job in job_titles:
-				job_info = 'https://www.simplyhired.com' + job.attrib['href']
-				yield response.follow(job_info, callback = self.parse_remote_job_information)
 
-		# We inputed a specific location, so we dont have to check for 'remote' keyword in page information
-		elif job_titles and "&l=&" not in response.url:
-			for job in job_titles:
-				job_info = 'https://www.simplyhired.com' + job.attrib['href']			
-				yield response.follow(job_info, callback = self.parse_job_information)
-		else:
-			pass
+		#Parse single keyword for a more search results (Ex: PHP, Web, Junior)
+		job_keyword = job_title[job_title.index('q=') + 2 : ].lower()
+		print(bcolors.OKBLUE + " Keyword search: " + job_keyword +  bcolors.ENDC)    
+
+		""" Looks at all relevant jobs (based on keywords) in single page """
+		xpath = "//a[@class='card-link' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{job_keyword}')]/@href".format(job_keyword = job_keyword)
+		job_titles = response.xpath(xpath).getall()
+
+		#Check if we found any matches in single page, with keyword search
+		if job_titles:
+			for href in job_titles:
+				job_info = 'https://www.simplyhired.com' + href
+				#job_info = 'https://www.simplyhired.com' + job.attrib['href']
+				yield response.follow(job_info, callback = self.parse_job_information, meta = {'job_keyword':job_keyword})
+
 
 		""" Goes to the next page """
 		tags = response.css("li.active + li > a");
 
 		# No more pages to crawl for this job title search
 		if not tags:
-			pass
+			print(bcolors.HEADER + " All links are crawled for job " + str(response.url) +  bcolors.ENDC)    
+			print(bcolors.HEADER + " Moving onto new job " + bcolors.ENDC)    	
 		else:
 			for next_page_tag in tags:
 				next_page_url = next_page_tag.attrib['href']
-				print('Going to new page')
-				yield response.follow(next_page_url ,callback = self.parse_remote_page, errback=self.errback_httpbin, meta = response.meta)
+				yield response.follow(next_page_url ,callback = self.parse_search_page, errback=self.errback_httpbin, meta = response.meta)
 
-
-
-	def parse_job_information(self):
-		pass
 
 
 
 	def errback_httpbin(self, failure):
-		# log all failures
-		#self.logger.error(repr(failure))
 
 		# in case you want to do something special for some errors,
 		# you may need the failure's type:
@@ -110,18 +120,54 @@ class SimplyHiredSpider(scrapy.Spider):
 			self.logger.error('Unknown Error on %s', request.url)
 
 
+	def parse_job_information(self, response):
 
+		if "&l=" not in response.url:	
+			print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
+			self.parse_remote_job(response)
+		else:
+			
+			job_dir, file_name, url = self.folder_file_information(response)
+			self.save_job(job_dir, file_name, url)
 
-	def parse_remote_job_information(self, response):
-		print('##### Found a potential remote job ##############')    
+		
+	def parse_remote_job(self,response):
 
-		is_remote = response.xpath("contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),remote)")
-
+		is_remote_work = int((response.xpath("contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'remote')").get()))
+	
 		#Save job link and info to folder
-		if is_remote:
+		if is_remote_work != 0:
+			job_dir , company_name, url = self.folder_file_information(response)
+			self.save_job(job_dir, company_name, url)
+		else:
+			pass
+
+
+	def folder_file_information(self, response):
+
+		job_title = response.meta['job_keyword'].replace(' ', '_')
+		job_dir =  os.getcwd() +  "/jobs/" + job_title + '/'
+		company_name = response.xpath('//span[@class="company"]/text()').get()
+		file_name = str(company_name).replace(' ','_')
+		url = response.url
+		return job_dir , file_name, url
 
 
 
+	def save_job(self, job_dir, file_name, url):
+		if not os.path.exists(job_dir):
+			os.makedirs(job_dir)
+		else:
+			try:
+				""" Make text and screen shot file  """
+				f = open(job_dir + file_name + '.txt','w')
+				f.write('Job URL: ' + str(url))
+				f.close()
+				print(bcolors.OKGREEN + "Found a perfect remote job!! Saved to " + job_dir + " folder !" + bcolors.ENDC)    
+
+			except Exception as e:
+				self.logger.error('~~ Creating file error: %s', str(e)) 
+				print(bcolors.FAIL + "~~ Error! Remote job couldnt be saved to folder " + bcolors.ENDC)    
 
 
 
