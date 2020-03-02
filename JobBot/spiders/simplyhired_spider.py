@@ -4,9 +4,15 @@ import logging
 import os
 
 """
-TODO Errros:
+TODO:
 - Looking at the same job. There might be an ID 
 for each job, save job IDS to a set
+
+- Filters out certain jobs (CyberCode, Revature)
+
+- Add CRON TAB to run code everyday
+
+- Add synonyms to words ?? (Entry level = Junior , UI/UX = Web)
 """
 
 class bcolors:
@@ -29,11 +35,36 @@ class SimplyHiredSpider(scrapy.Spider):
 	start_urls = []
 	job_keywords = ['Junior Developer', 'Web developer', 'PHP developer']
 	locations = ['Long Island, NY', 'New York, NY', '']
+
+	ignore_jobs = {'CyberCoders', 'Revature','Jobot'}
+
 	
 	logger = logging.basicConfig(level=logging.DEBUG,
 					format='%(asctime)s %(levelname)s %(message)s',
 					filename='scrapy.log',
 					filemode='w')
+
+
+	def errback_httpbin(self, failure):
+
+		# in case you want to do something special for some errors,
+		# you may need the failure's type:
+		if failure.check(HttpError):
+			# these exceptions come from HttpError spider middleware
+			# you can get the non-200 response
+			response = failure.value.response
+			self.logger.error('HttpError on %s', response.url)
+
+		elif failure.check(DNSLookupError):
+			# this is the original request
+			request = failure.request
+			self.logger.error('DNSLookupError on %s', request.url)
+
+		elif failure.check(TimeoutError, TCPTimedOutError):
+			request = failure.request
+			self.logger.error('TimeoutError on %s', request.url)
+		else:
+			self.logger.error('Unknown Error on %s', request.url)
 
 
 	def generate_urls(self):
@@ -98,35 +129,13 @@ class SimplyHiredSpider(scrapy.Spider):
 
 
 
-	def errback_httpbin(self, failure):
-
-		# in case you want to do something special for some errors,
-		# you may need the failure's type:
-		if failure.check(HttpError):
-			# these exceptions come from HttpError spider middleware
-			# you can get the non-200 response
-			response = failure.value.response
-			self.logger.error('HttpError on %s', response.url)
-
-		elif failure.check(DNSLookupError):
-			# this is the original request
-			request = failure.request
-			self.logger.error('DNSLookupError on %s', request.url)
-
-		elif failure.check(TimeoutError, TCPTimedOutError):
-			request = failure.request
-			self.logger.error('TimeoutError on %s', request.url)
-		else:
-			self.logger.error('Unknown Error on %s', request.url)
-
-
 	def parse_job_information(self, response):
 
+		#Location not specified
 		if "&l=" not in response.url:	
 			print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
 			self.parse_remote_job(response)
 		else:
-			
 			job_dir, file_name, url = self.folder_file_information(response)
 			self.save_job(job_dir, file_name, url)
 
