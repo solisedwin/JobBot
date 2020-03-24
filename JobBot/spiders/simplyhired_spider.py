@@ -79,7 +79,7 @@ class SimplyHiredSpider(scrapy.Spider):
 
 				location1 = location.replace(' ','+')
 				url_location =  "&l=" + location1.replace(",","%2C")
-				search_url = base_url + job + url_location  + "&fdb=1"
+				search_url = base_url + job + url_location  + "&fdb=7"
 
 				#Add it to list of url we will crawl 
 				self.start_urls.append(search_url)
