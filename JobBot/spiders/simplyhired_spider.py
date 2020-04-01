@@ -76,7 +76,6 @@ class SimplyHiredSpider(scrapy.Spider):
 			for location in self.locations:
 
 				""" Identifer for website. l means location, fdb means # of days, q means job title""" 
-
 				location1 = location.replace(' ','+')
 				url_location =  "&l=" + location1.replace(",","%2C")
 				search_url = base_url + job + url_location  + "&fdb=7"
@@ -85,13 +84,11 @@ class SimplyHiredSpider(scrapy.Spider):
 				self.start_urls.append(search_url)
 
 
-
 	def start_requests(self):
 		self.generate_urls()
 		for url in self.start_urls:
 			job_title = url[url.index('q=') : url.index('+')]
 			yield scrapy.Request(url, callback = self.parse_search_page, meta = {'job': job_title})
-
 
 
 	def parse_search_page(self, response):
@@ -125,50 +122,48 @@ class SimplyHiredSpider(scrapy.Spider):
 		# No more pages to crawl for this job title search
 		if not tags:
 			print(bcolors.HEADER + " All links are crawled for job " + str(response.url) +  bcolors.ENDC)    
-			print(bcolors.HEADER + " Moving onto new job " + bcolors.ENDC)    	
 		else:
 			for next_page_tag in tags:
 				next_page_url = next_page_tag.attrib['href']
 				yield response.follow(next_page_url ,callback = self.parse_search_page, errback=self.errback_httpbin, meta = response.meta)
 
 
-
 	def parse_job_information(self, response):
 
-		company_name = response.xpath("//div[@class='viewjob-labelWithIcon']/text()")[0]
+		company_name = response.xpath("//div[@class='viewjob-labelWithIcon']/text()").extract_first()
+		#qprint(bcolors.HEADER + " Company Name " +  str(company_name) + " " + bcolors.ENDC)    	
 
 		if company_name.strip() not in self.ignore_jobs:
 
 			#Location not specified
 			if "&l=" not in response.url:	
 				print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
-				self.parse_remote_job(response)
+				self.parse_remote_job(response , company_name = company_name)
 			else:
-				job_dir, file_name, url = self.folder_file_information(response)
+				job_dir, file_name, url = self.folder_file_information(response, company_name = company_name)
 				self.save_job(job_dir, file_name, url)
-
 		
-	def parse_remote_job(self,response):
 
+	def parse_remote_job(self,response, company_name):
 		is_remote_work = int((response.xpath("contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'remote')").get()))
 	
 		#Save job link and info to folder
 		if is_remote_work != 0:
-			job_dir , company_name, url = self.folder_file_information(response)
+			job_dir,company_name, url = self.folder_file_information(response,company_name)
 			self.save_job(job_dir, company_name, url)
 		else:
 			pass
 
 
-	def folder_file_information(self, response):
+	def folder_file_information(self, response, company_name):
 
 		job_title = response.meta['job_keyword'].replace(' ', '_')
 		job_dir =  os.getcwd() +  "/jobs/" + job_title + '/'
-		company_name = response.xpath('//span[@class="company"]/text()').get()
+		
+		#company_name = response.xpath('//span[@class="company"]/text()').get()
 		file_name = str(company_name).replace(' ','_')
 		url = response.url
-		return job_dir , file_name, url
-
+		return job_dir,file_name,url
 
 
 	def save_job(self, job_dir, file_name, url):
@@ -181,10 +176,9 @@ class SimplyHiredSpider(scrapy.Spider):
 				f.write('Job URL: ' + str(url))
 				f.close()
 				print(bcolors.OKGREEN + "Found a perfect remote job!! Saved to " + job_dir + " folder !" + bcolors.ENDC)    
+				print(bcolors.OKGREEN + " Company Name: " + file_name + " URL: " + url + bcolors.ENDC)    
 
 			except Exception as e:
 				self.logger.error('~~ Creating file error: %s', str(e)) 
 				print(bcolors.FAIL + "~~ Error! Remote job couldnt be saved to folder " + bcolors.ENDC)    
-
-
 
