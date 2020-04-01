@@ -17,14 +17,14 @@ for each job, save job IDS to a set
 
 class bcolors:
 
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+	HEADER = '\033[95m'
+	OKBLUE = '\033[94m'
+	OKGREEN = '\033[92m'
+	WARNING = '\033[93m'
+	FAIL = '\033[91m'
+	ENDC = '\033[0m'
+	BOLD = '\033[1m'
+	UNDERLINE = '\033[4m'
 
 
 class SimplyHiredSpider(scrapy.Spider):
@@ -96,6 +96,12 @@ class SimplyHiredSpider(scrapy.Spider):
 
 	def parse_search_page(self, response):
 
+		number_of_post = response.xpath("//span[contains(@class, 'posting-total')]/text()").get()
+
+		#Zero search results. Stop process and move on to the next job title/location
+		if number_of_post is not None and len(number_of_post) > 0:
+			return
+
 		job_title = response.meta['job']
 
 		#Parse single keyword for a more search results (Ex: PHP, Web, Junior)
@@ -113,7 +119,6 @@ class SimplyHiredSpider(scrapy.Spider):
 				#job_info = 'https://www.simplyhired.com' + job.attrib['href']
 				yield response.follow(job_info, callback = self.parse_job_information, meta = {'job_keyword':job_keyword})
 
-
 		""" Goes to the next page """
 		tags = response.css("li.active + li > a");
 
@@ -128,16 +133,19 @@ class SimplyHiredSpider(scrapy.Spider):
 
 
 
-
 	def parse_job_information(self, response):
 
-		#Location not specified
-		if "&l=" not in response.url:	
-			print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
-			self.parse_remote_job(response)
-		else:
-			job_dir, file_name, url = self.folder_file_information(response)
-			self.save_job(job_dir, file_name, url)
+		company_name = response.xpath("//div[@class='viewjob-labelWithIcon']/text()")[0]
+
+		if company_name.strip() not in self.ignore_jobs:
+
+			#Location not specified
+			if "&l=" not in response.url:	
+				print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
+				self.parse_remote_job(response)
+			else:
+				job_dir, file_name, url = self.folder_file_information(response)
+				self.save_job(job_dir, file_name, url)
 
 		
 	def parse_remote_job(self,response):
