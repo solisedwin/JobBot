@@ -1,5 +1,6 @@
 geckodriver.log
-/JobBot/spiders/__pycache__/
+JobBot/spiders/__pycache__/
 scrapy.cfg
-/JobBot/__pycache__/
+JobBot/__pycache__/
 scrapy.log
+JobBot/spiders/__pycache__/simplyhired_spider.cpython-35.pyc

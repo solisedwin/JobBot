@@ -8,8 +8,6 @@ TODO:
 - Looking at the same job. There might be an ID 
 for each job, save job IDS to a set
 
-- Filters out certain jobs (CyberCode, Revature)
-
 - Add CRON TAB to run code everyday
 
 - Add synonyms to words ?? (Entry level = Junior , UI/UX = Web)
@@ -93,70 +91,67 @@ class SimplyHiredSpider(scrapy.Spider):
 
 	def parse_search_page(self, response):
 
-		number_of_post = response.xpath("//span[contains(@class, 'posting-total')]/text()").get()
+		try:
+			jobs_posted = response.xpath("//span[contains(concat(' ',normalize-space(@class),' '),'CategoryPath-total')]").get()
 
-		#Zero search results. Stop process and move on to the next job title/location
-		if number_of_post is not None and len(number_of_post) > 0:
-			return
+			#Zero search results. Stop process and move on to the next job title/location
+			if jobs_posted is not None:
+		
+				job_title = response.meta['job']	
 
-		job_title = response.meta['job']
+				#Parse single keyword for a more search results (Ex: PHP, Web, Junior)
+				job_keyword = job_title[job_title.index('q=') + 2 : ].lower()
+				print(bcolors.OKBLUE + " Keyword search: " + job_keyword +  bcolors.ENDC)    
 
-		#Parse single keyword for a more search results (Ex: PHP, Web, Junior)
-		job_keyword = job_title[job_title.index('q=') + 2 : ].lower()
-		print(bcolors.OKBLUE + " Keyword search: " + job_keyword +  bcolors.ENDC)    
+				""" Looks at all relevant jobs (based on keywords) in single page """
+				xpath = "//a[@class='card-link' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{job_keyword}')]/@href".format(job_keyword = job_keyword)
+				job_titles = response.xpath(xpath).getall()
 
-		""" Looks at all relevant jobs (based on keywords) in single page """
-		xpath = "//a[@class='card-link' and contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{job_keyword}')]/@href".format(job_keyword = job_keyword)
-		job_titles = response.xpath(xpath).getall()
+				#Check if we found any matches in single page, with keyword search
+				if job_titles:
+					for href in job_titles:
+						job_info_url = 'https://www.simplyhired.com' + href
+						#job_info = 'https://www.simplyhired.com' + job.attrib['href']
+						yield response.follow(job_info_url, callback = self.parse_job_information, meta = {'job_keyword':job_keyword})
 
-		#Check if we found any matches in single page, with keyword search
-		if job_titles:
-			for href in job_titles:
-				job_info = 'https://www.simplyhired.com' + href
-				#job_info = 'https://www.simplyhired.com' + job.attrib['href']
-				yield response.follow(job_info, callback = self.parse_job_information, meta = {'job_keyword':job_keyword})
+				""" Goes to the next page """
+				tags = response.css("li.active + li > a");
 
-		""" Goes to the next page """
-		tags = response.css("li.active + li > a");
+				# No more pages to crawl for this job title search
+				if not tags:
+					print(bcolors.HEADER + " All links are crawled for job " + str(response.url) +  bcolors.ENDC)    
+				else:
+					for next_page_tag in tags:
+						next_page_url = next_page_tag.attrib['href']
+						yield response.follow(next_page_url ,callback = self.parse_search_page, errback=self.errback_httpbin, meta = response.meta)
+		
+		except Exception as e:
+			print('~~ Exception: ' + str(e))
 
-		# No more pages to crawl for this job title search
-		if not tags:
-			print(bcolors.HEADER + " All links are crawled for job " + str(response.url) +  bcolors.ENDC)    
-		else:
-			for next_page_tag in tags:
-				next_page_url = next_page_tag.attrib['href']
-				yield response.follow(next_page_url ,callback = self.parse_search_page, errback=self.errback_httpbin, meta = response.meta)
 
 
 	def parse_job_information(self, response):
 
-		company_name = response.xpath("//div[@class='viewjob-labelWithIcon']/text()").extract_first()
+		company_name = str(response.xpath("//div[@class='viewjob-labelWithIcon']/text()").extract_first())
 		#qprint(bcolors.HEADER + " Company Name " +  str(company_name) + " " + bcolors.ENDC)    	
 
 		if company_name.strip() not in self.ignore_jobs:
 
-			#Location not specified
-			if "&l=" not in response.url:	
-				print(bcolors.OKBLUE + "## Remote job in the process" + bcolors.ENDC)    
-				self.parse_remote_job(response , company_name = company_name)
-			else:
-				job_dir, file_name, url = self.folder_file_information(response, company_name = company_name)
-				self.save_job(job_dir, file_name, url)
-		
+			is_remote_work = int(response.xpath("contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'remote')").get())
+			print('---- Is work remote: ' + str(is_remote_work))
 
-	def parse_remote_job(self,response, company_name):
-		is_remote_work = int((response.xpath("contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'remote')").get()))
-	
-		#Save job link and info to folder
-		if is_remote_work != 0:
-			job_dir,company_name, url = self.folder_file_information(response,company_name)
-			self.save_job(job_dir, company_name, url)
-		else:
-			pass
+			job_dir , file_name , url = self.folder_file_information(response, company_name)
+
+			#Location not specified and remote work is availbale for job
+			if "&l=" not in response.url and is_remote_work != 0:
+				self.save_job(job_dir, file_name, url)
+			elif "&l" in response.url:
+				self.save_job(job_dir, file_name, url)
+			else:
+				pass
 
 
 	def folder_file_information(self, response, company_name):
-
 		job_title = response.meta['job_keyword'].replace(' ', '_')
 		job_dir =  os.getcwd() +  "/jobs/" + job_title + '/'
 		
