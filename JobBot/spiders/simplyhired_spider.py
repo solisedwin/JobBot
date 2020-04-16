@@ -34,7 +34,7 @@ class SimplyHiredSpider(scrapy.Spider):
 	allowed_domains = ['simplyhired.com']
 
 	start_urls = []
-	job_keywords = ['junior developer', 'web developer', 'php developer']
+	job_keywords = ['junior developer', 'web developer', 'php developer', 'python developer']
 	locations = ['Long Island, NY', 'New York, NY', '']
 
 	ignore_jobs = {'CyberCoders', 'Revature','Jobot'}
