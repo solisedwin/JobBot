@@ -4,3 +4,4 @@ scrapy.cfg
 JobBot/__pycache__/
 scrapy.log
 JobBot/spiders/__pycache__/simplyhired_spider.cpython-35.pyc
+scrapy.sh
