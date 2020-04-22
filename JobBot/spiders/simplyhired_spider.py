@@ -3,16 +3,12 @@ import scrapy
 import logging
 import os
 import sys
-from scrapy.exceptions import CloseSpider
-
+import json
+from .bot import WebBot
 
 """
 TODO:
-- Looking at the same job. There might be an ID
-for each job, save job IDS to a set
-
 - Add CRON TAB to run code everyday
-
 - Add synonyms to words ?? (Entry level = Junior , UI/UX = Web)
 """
 
@@ -34,17 +30,13 @@ class SimplyHiredSpider(scrapy.Spider):
 	allowed_domains = ['simplyhired.com']
 
 	start_urls = []
-	job_keywords = ['junior developer', 'web developer', 'php developer', 'python developer']
-	locations = ['Long Island, NY', 'New York, NY', '']
 
-	ignore_jobs = {'CyberCoders', 'Revature','Jobot'}
-
+	visited_job_ids = set()
 
 	logger = logging.basicConfig(level=logging.DEBUG,
 					format='%(asctime)s %(levelname)s %(message)s',
 					filename='scrapy.log',
 					filemode='w')
-
 
 	def errback_httpbin(self, failure):
 
@@ -68,19 +60,45 @@ class SimplyHiredSpider(scrapy.Spider):
 			self.logger.error('Unknown Error on %s', request.url)
 
 
+	def read_json_keywords(self):
+		with open('./JobBot/spiders/crawl_job_settings.json') as f:
+			data = json.load(f)
+			self.job_keywords = [keyword  for keyword in data['job_keywords']  ]
+			self.job_locations = [location  for location in data['locations']  ]
+			self.ignore_jobs = { ignore_job  for ignore_job in data['ignore_jobs']  }
+
+		self.init_job_url_dict()
+
+
+
+	def init_job_url_dict(self):
+		
+		#Intalize number of WebBots needed, corresponding to number of job keywords
+		#job_keyword_length = len(self.job_keywords)
+		self.job_urls_dict = dict()
+
+		for job in self.job_keywords:
+			if job not in self.job_urls_dict:
+				self.job_urls_dict[job] = set()
+		
+
+
 	def generate_urls(self):
+
+		self.read_json_keywords()
 
 		# Ex: https://www.simplyhired.com/search?q=junior+developer&l=long+island%2C+ny&fdb=1
 		base_url = 'https://www.simplyhired.com/search?q='
 
 		for job in self.job_keywords:
+			job += ' developer'
 			job = job.replace(' ', '+')
-			for location in self.locations:
+			for location in self.job_locations:
 
 				""" Identifer for website. l means location, fdb means # of days, q means job title"""
 				location1 = location.replace(' ','+')
 				url_location =  "&l=" + location1.replace(",","%2C")
-				search_url = base_url + job + url_location  + "&fdb=7"
+				search_url = base_url + job + url_location  + "&fdb=1"
 
 				#Add it to list of url we will crawl
 				self.start_urls.append(search_url)
@@ -88,6 +106,7 @@ class SimplyHiredSpider(scrapy.Spider):
 
 	def start_requests(self):
 		self.generate_urls()
+
 		for url in self.start_urls:
 			job_title = url[url.index('q=') + 2 : url.index('+')]
 			yield scrapy.Request(url, callback = self.parse_search_page, meta = {'job_title': job_title})
@@ -109,9 +128,13 @@ class SimplyHiredSpider(scrapy.Spider):
 				#Check if we found any matches in single page, with keyword search
 				if job_titles:
 					for href in job_titles:
-						job_info_url = 'https://www.simplyhired.com' + href
-						#job_info = 'https://www.simplyhired.com' + job.attrib['href']
-						yield response.follow(job_info_url, callback = self.parse_job_information, meta = {'job_keyword':job_title})
+						if href in self.visited_job_ids:
+							continue
+						else:
+							self.visited_job_ids.add(href)
+							job_info_url = 'https://www.simplyhired.com' + href
+							yield response.follow(job_info_url, callback = self.parse_job_information, meta = {'job_keyword':job_title})
+
 
 				""" Goes to the next page """
 				tags = response.css("li.active + li > a");
@@ -120,7 +143,6 @@ class SimplyHiredSpider(scrapy.Spider):
 				if not tags:
 					pass
 					#print(bcolors.HEADER + " All links are crawled for job " + str(response.url) +  bcolors.ENDC)
-
 				else:
 					for next_page_tag in tags:
 						next_page_url = next_page_tag.attrib['href']
@@ -132,7 +154,6 @@ class SimplyHiredSpider(scrapy.Spider):
 
 
 	def parse_job_information(self, response):
-
 		company_name = str(response.xpath("//span[@class='company']/text()").extract_first())
 
 		if company_name.strip() not in self.ignore_jobs:
@@ -141,9 +162,9 @@ class SimplyHiredSpider(scrapy.Spider):
 
 			#Location not specified and remote work is availbale for job
 			if "&l=" not in response.url and is_remote_work != 0:
-				self.save_job(job_dir, file_name, url)
+				self.save_job(job_dir, file_name, url, response)
 			elif "&l" in response.url:
-				self.save_job(job_dir, file_name, url)
+				self.save_job(job_dir, file_name, url, response)
 			else:
 				pass
 
@@ -158,7 +179,7 @@ class SimplyHiredSpider(scrapy.Spider):
 		return job_dir,file_name,url
 
 
-	def save_job(self, job_dir, file_name, url):
+	def save_job(self, job_dir, file_name, url, response):
 		if not os.path.exists(job_dir):
 			os.makedirs(job_dir)
 		else:
@@ -169,7 +190,29 @@ class SimplyHiredSpider(scrapy.Spider):
 				f.close()
 				print(bcolors.OKGREEN + "Found a perfect job!! Saved to " + job_dir + " folder !" + bcolors.ENDC)
 				
+				job_keyword = response.meta['job_keyword']
+
+				if job_keyword in self.job_urls_dict:
+					self.job_urls_dict[job_keyword].add(url)
+
 			except Exception as e:
 				self.logger.error('~~ Creating file error: %s', str(e))
 				print(bcolors.FAIL + "~~ Error! Remote job couldnt be saved to folder " + bcolors.ENDC)
 
+
+	def browser_view_jobs(self):
+
+		print()
+		print(self.job_urls_dict)
+
+		for job_title in self.job_urls_dict:
+			url_list = []
+			for url in self.job_urls_dict[job_title]:
+				url_list.append(url)
+			
+			web_bot = WebBot(url_list)
+			web_bot.open_urls()
+
+
+	def closed( self, reason ):
+		self.browser_view_jobs()
