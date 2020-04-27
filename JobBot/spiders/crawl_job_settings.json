@@ -1,7 +1,7 @@
 {
 
-	"job_keywords": ["junior"] ,
-	"locations": [""],
+	"job_keywords": ["junior","web","python","php"] ,
+	"locations": ["New York, NY","Long Island", "NY",""],
 	"ignore_jobs": ["CyberCoders", "Revature","Jobot"]
 	
 }
